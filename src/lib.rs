@@ -102,7 +102,6 @@
 //!
 
 #![cfg_attr(test, deny(warnings))]
-
 // Types, such as Atom, that impl Hash must follow the hash invariant: if two objects match
 // with PartialEq, they must also have the same Hash. Clippy warns on types that derive one while
 // manually impl-ing the other, because it seems easy for the two to drift apart, causing the

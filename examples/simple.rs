@@ -15,9 +15,9 @@ fn main() {
             .filter(|interned_word| interned_word == &word)
             .count();
         if seen_before > 0 {
-            println!(r#"Seen the word "{}" {} times"#, word, seen_before);
+            println!(r#"Seen the word "{word}" {seen_before} times"#);
         } else {
-            println!(r#"Not seen the word "{}" before"#, word);
+            println!(r#"Not seen the word "{word}" before"#);
         }
         // We use the impl From<(Cow<'a, str>, or &'a str, or String) for Atom<Static> to intern a
         // new string

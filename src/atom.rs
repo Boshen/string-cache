@@ -21,7 +21,6 @@ use std::num::NonZeroU64;
 use std::ops;
 use std::slice;
 use std::str;
-use std::sync::atomic::Ordering::SeqCst;
 
 const DYNAMIC_TAG: u8 = 0b_00;
 const INLINE_TAG: u8 = 0b_01; // len in upper nybble
@@ -156,7 +155,7 @@ impl<Static: StaticAtomSet> Atom<Static> {
 
     fn try_static_internal(string_to_add: &str) -> Result<Self, phf_shared::Hashes> {
         let static_set = Static::get();
-        let hash = phf_shared::hash(&*string_to_add, &static_set.key);
+        let hash = phf_shared::hash(string_to_add, &static_set.key);
         let index = phf_shared::get_index(&hash, static_set.disps, static_set.atoms.len());
 
         if static_set.atoms[index as usize] == string_to_add {
@@ -186,7 +185,7 @@ impl<Static: StaticAtomSet> Hash for Atom<Static> {
 
 impl<'a, Static: StaticAtomSet> From<Cow<'a, str>> for Atom<Static> {
     fn from(string_to_add: Cow<'a, str>) -> Self {
-        Self::try_static_internal(&*string_to_add).unwrap_or_else(|hash| {
+        Self::try_static_internal(&string_to_add).unwrap_or_else(|hash| {
             let len = string_to_add.len();
             if len <= MAX_INLINE_LEN {
                 let mut data: u64 = (INLINE_TAG as u64) | ((len as u64) << LEN_OFFSET);
@@ -200,8 +199,7 @@ impl<'a, Static: StaticAtomSet> From<Cow<'a, str>> for Atom<Static> {
                     phantom: PhantomData,
                 }
             } else {
-                let ptr: std::ptr::NonNull<Entry> =
-                    DYNAMIC_SET.lock().insert(string_to_add, hash.g);
+                let ptr: std::ptr::NonNull<Entry> = DYNAMIC_SET.insert(string_to_add, hash.g);
                 let data = ptr.as_ptr() as u64;
                 debug_assert!(0 == data & TAG_MASK);
                 Atom {
@@ -217,30 +215,7 @@ impl<'a, Static: StaticAtomSet> From<Cow<'a, str>> for Atom<Static> {
 impl<Static: StaticAtomSet> Clone for Atom<Static> {
     #[inline(always)]
     fn clone(&self) -> Self {
-        if self.tag() == DYNAMIC_TAG {
-            let entry = self.unsafe_data.get() as *const Entry;
-            unsafe { &*entry }.ref_count.fetch_add(1, SeqCst);
-        }
         Atom { ..*self }
-    }
-}
-
-impl<Static> Drop for Atom<Static> {
-    #[inline]
-    fn drop(&mut self) {
-        if self.tag() == DYNAMIC_TAG {
-            let entry = self.unsafe_data.get() as *const Entry;
-            if unsafe { &*entry }.ref_count.fetch_sub(1, SeqCst) == 1 {
-                drop_slow(self)
-            }
-        }
-
-        // Out of line to guide inlining.
-        fn drop_slow<Static>(this: &mut Atom<Static>) {
-            DYNAMIC_SET
-                .lock()
-                .remove(this.unsafe_data.get() as *mut Entry);
-        }
     }
 }
 
@@ -279,7 +254,7 @@ impl<Static: StaticAtomSet> fmt::Debug for Atom<Static> {
             }
         };
 
-        write!(f, "Atom('{}' type={})", &*self, ty_str)
+        write!(f, "Atom('{self}' type={ty_str})")
     }
 }
 
@@ -351,14 +326,14 @@ impl<Static: StaticAtomSet> Atom<Static> {
     ///
     /// [`eq_ignore_ascii_case`]: https://doc.rust-lang.org/std/ascii/trait.AsciiExt.html#tymethod.eq_ignore_ascii_case
     pub fn eq_ignore_ascii_case(&self, other: &Self) -> bool {
-        (self == other) || self.eq_str_ignore_ascii_case(&**other)
+        (self == other) || self.eq_str_ignore_ascii_case(other)
     }
 
     /// Like [`eq_ignore_ascii_case`], but takes an unhashed string as `other`.
     ///
     /// [`eq_ignore_ascii_case`]: https://doc.rust-lang.org/std/ascii/trait.AsciiExt.html#tymethod.eq_ignore_ascii_case
     pub fn eq_str_ignore_ascii_case(&self, other: &str) -> bool {
-        (&**self).eq_ignore_ascii_case(other)
+        (**self).eq_ignore_ascii_case(other)
     }
 }
 
